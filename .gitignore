@@ -2,4 +2,5 @@ backups
 database
 tmp
 .env
+bin
 
