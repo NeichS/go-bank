@@ -7,17 +7,16 @@ import (
 
 type CreateAccountRequest struct {
 	FirstName string `json:"first_name"`
-	LastName string `json:"last_name"`
+	LastName  string `json:"last_name"`
 }
 
 type Account struct {
-	ID uint `json:"id"`
-	FirstName  string `json:"firstName"`
-	LastName   string `json:"lastName"`
-	BankNumber int64  `json:"bankNumber"`
-	Balance    float64  `json:"balance"`
-	CreatedAt time.Time `json:"created_at"`
-
+	ID         uint      `json:"id"`
+	FirstName  string    `json:"firstName"`
+	LastName   string    `json:"lastName"`
+	BankNumber int64     `json:"bankNumber"`
+	Balance    float64   `json:"balance"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 func NewAccount(firstName, lastName string) *Account {
@@ -25,7 +24,7 @@ func NewAccount(firstName, lastName string) *Account {
 		FirstName:  firstName,
 		LastName:   lastName,
 		BankNumber: generateBankNumber(),
-		CreatedAt: time.Now().UTC(),
+		CreatedAt:  time.Now().UTC(),
 	}
 }
 
@@ -34,4 +33,3 @@ func generateBankNumber() int64 {
 
 	return int64(rand.Intn(1000000))
 }
-

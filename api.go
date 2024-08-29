@@ -45,7 +45,7 @@ func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/account", makeHttpHandleFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", makeHttpHandleFunc(s.handleGetAccount))
+	router.HandleFunc("/account/{id}", makeHttpHandleFunc(s.handleGetAccountByID))
 
 	log.Println("JSON API server running on port: ", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
@@ -55,7 +55,7 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 
 	switch r.Method {
 	case "GET":
-		return s.handleGetAccount(w, r)
+		return s.handleGetAccount(w)
 	case "POST":
 		return s.handleCreateAccount(w, r)
 	case "DELETE":
@@ -65,14 +65,26 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 	}
 }
 
-func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
-	accounts := make([]*Account, 0)
+func (s *APIServer) handleGetAccount(w http.ResponseWriter ) error {
+	accounts, err := s.dbConnection.GetAccounts()
 
-	account := NewAccount("Ricardo", "Fort")
-	account1 := NewAccount("Gonza", "Gomez")
-
-	accounts = append(accounts, account, account1)
+	if err != nil {
+		return	err
+	}
+	
 	return WriteJSON(w, http.StatusOK, accounts)
+}
+
+func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request) error {
+	id := mux.Vars(r)["id"]
+	account, err := s.dbConnection.GetAccountByID(id)
+
+
+	if err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, account)
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
