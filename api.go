@@ -5,15 +5,65 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
-
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(status)
+
 	return json.NewEncoder(w).Encode(v)
+}
+
+func createJWT(account *Account) (string, error) {
+	claims := &jwt.MapClaims{
+		"expiresAt": 1500,
+		"accountNumber": account.BankNumber,
+	}
+	
+	secret := os.Getenv("JWT_SECRET")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	return token.SignedString([]byte(secret))
+}
+
+func withJWTAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request){
+		fmt.Println("calling JWT auth middleware")
+		
+		tokenString := r.Header.Get("x-jwt-token")
+
+		token , err := validateJWT(tokenString)
+		if err != nil {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error : "invalid token"})
+			return
+		}
+		if !token.Valid {
+			WriteJSON(w, http.StatusForbidden, ApiError{Error: "invalid toekn"})
+			return
+		}
+
+		claims := token.Claims.(jwt.MapClaims)
+		fmt.Println(claims)
+
+		handleFunc(w, r)
+	}
+}
+
+func validateJWT(tokenString string) (*jwt.Token, error) {
+	
+	secret := os.Getenv("JWT_SECRET")
+	
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return []byte(secret), nil
+	})
 }
 
 type ApiFunc func(http.ResponseWriter, *http.Request) error
@@ -46,7 +96,7 @@ func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/account", makeHttpHandleFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", makeHttpHandleFunc(s.handleGetAccountByID))
+	router.HandleFunc("/account/{id}", withJWTAuth(makeHttpHandleFunc(s.handleGetAccountByID)))
 	router.HandleFunc("/transfer", makeHttpHandleFunc(s.handleTransferAccount))
 
 	log.Println("JSON API server running on port: ", s.listenAddr)
@@ -108,6 +158,13 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 	if err := s.dbConnection.CreateAccount(account); err != nil {
 		return err
 	}
+
+	tokenString, err := createJWT(account)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("JWT token: ", tokenString)
 	return WriteJSON(w, http.StatusOK, account)
 
 }
@@ -141,3 +198,4 @@ func getID(r *http.Request) (int, error) {
 	}
 	return id, nil
 }
+
