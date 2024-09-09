@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -87,37 +86,22 @@ func (s *PostgresConnection) UpdateAccount(*Account) error {
 	return nil
 }
 
-func (s *PostgresConnection) DeleteAccount(id uint) error {
-	return nil
+func (s *PostgresConnection) DeleteAccount(id int) error {
+	_, err := s.db.Query("DELETE FROM account WHERE id = $1", id)
+	return err
 }
 
-func (s *PostgresConnection) GetAccountByID(id string) (*Account, error) {
-	query := `select * from account where id = $1`
-
-	num, err := strconv.Atoi(id)
+func (s *PostgresConnection) GetAccountByID(id int) (*Account, error) {
+	rows, err := s.db.Query("select * from account where id = $1", id)
 	if err != nil {
 		return nil, err
 	}
-
-	row := s.db.QueryRow(query, num)
-
-	account := new(Account)
-	err = row.Scan(
-		&account.ID,
-		&account.FirstName,
-		&account.LastName,
-		&account.BankNumber,
-		&account.Balance,
-		&account.CreatedAt,
-	)
-
-	if err != nil {
-		return nil, err
+	
+	for rows.Next() {
+		return scanIntoAccount(rows)
 	}
-
-	return account, nil
+	return nil, fmt.Errorf("account %d not found", id)
 }
-
 func (s *PostgresConnection) GetAccounts() ([]*Account, error) {
 	query := `select * from account`
 
@@ -130,19 +114,27 @@ func (s *PostgresConnection) GetAccounts() ([]*Account, error) {
 	accounts := []*Account{}
 	for rows.Next() {
 		account := new(Account)
-		err := rows.Scan(
-			&account.ID,
-			&account.FirstName,
-			&account.LastName,
-			&account.BankNumber,
-			&account.Balance,
-			&account.CreatedAt,
-		)
-
+		account, err := scanIntoAccount(rows) 
 		if err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, account)
 	}
 	return accounts, nil
+}
+
+
+func scanIntoAccount(rows *sql.Rows) (*Account, error){
+	
+	account := new(Account)
+	err := rows.Scan(
+		&account.ID,
+		&account.FirstName,
+		&account.LastName,
+		&account.BankNumber,
+		&account.Balance,
+		&account.CreatedAt,
+	)
+
+	return account, err
 }

@@ -18,6 +18,6 @@ func main() {
 		fmt.Printf("%+v\n", err)
 	}
 
-	api := NewAPIServer(":3000", store)
+	api := NewAPIServer(":3002", store)
 	api.Run()
 }
