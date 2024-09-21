@@ -7,9 +7,35 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 )
+
+type APIServer struct {
+	listenAddr   string
+	dbConnection *PostgresConnection
+}
+
+func NewAPIServer(listenAddr string, conn *PostgresConnection) *APIServer {
+	return &APIServer{
+		listenAddr:   listenAddr,
+		dbConnection: conn,
+	}
+}
+
+func (s *APIServer) Run() {
+	router := mux.NewRouter()
+
+	router.HandleFunc("/login", makeHttpHandleFunc(s.handleLogin))
+	router.HandleFunc("/account", makeHttpHandleFunc(s.handleAccount))
+	router.HandleFunc("/account/{id}", withJWTAuth(makeHttpHandleFunc(s.handleGetAccountByID), s.dbConnection))
+	router.HandleFunc("/transfer", makeHttpHandleFunc(s.handleTransferAccount))
+
+	log.Println("JSON API server running on port: ", s.listenAddr)
+	http.ListenAndServe(s.listenAddr, router)
+}
+
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Add("Content-Type", "application/json")
@@ -30,7 +56,11 @@ func createJWT(account *Account) (string, error) {
 	return token.SignedString([]byte(secret))
 }
 
-func withJWTAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
+func permissionDenied(w http.ResponseWriter) {
+	WriteJSON(w, http.StatusForbidden, ApiError{Error : "permission denied"})
+}
+
+func withJWTAuth(handleFunc http.HandlerFunc, s *PostgresConnection) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request){
 		fmt.Println("calling JWT auth middleware")
 		
@@ -38,16 +68,33 @@ func withJWTAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
 
 		token , err := validateJWT(tokenString)
 		if err != nil {
-			WriteJSON(w, http.StatusForbidden, ApiError{Error : "invalid token"})
+			permissionDenied(w)
 			return
 		}
 		if !token.Valid {
-			WriteJSON(w, http.StatusForbidden, ApiError{Error: "invalid toekn"})
+			permissionDenied(w)
+			return
+		}
+		
+		usedID, err := getID(r)
+		if err != nil {
+			permissionDenied(w)
+			return
+		}
+
+		account, err := s.GetAccountByID(usedID)
+		if err != nil {
+			permissionDenied(w)
 			return
 		}
 
 		claims := token.Claims.(jwt.MapClaims)
-		fmt.Println(claims)
+		if account.BankNumber != int64((claims["accountNumber"]).(float64)){
+			//permissionDenied(w)
+			WriteJSON(w, http.StatusForbidden, ApiError{Error : "QUE"})
+			return
+		}
+		
 
 		handleFunc(w, r)
 	}
@@ -80,28 +127,21 @@ func makeHttpHandleFunc(f ApiFunc) http.HandlerFunc {
 	}
 }
 
-type APIServer struct {
-	listenAddr   string
-	dbConnection *PostgresConnection
-}
-
-func NewAPIServer(listenAddr string, conn *PostgresConnection) *APIServer {
-	return &APIServer{
-		listenAddr:   listenAddr,
-		dbConnection: conn,
+func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) error {
+	
+	if r.Method != "POST" {
+		return fmt.Errorf("method not allowed %s", r.Method)
 	}
+	
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return err
+	}
+
+	
+	return WriteJSON(w, http.StatusOK, req)
 }
 
-func (s *APIServer) Run() {
-	router := mux.NewRouter()
-
-	router.HandleFunc("/account", makeHttpHandleFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", withJWTAuth(makeHttpHandleFunc(s.handleGetAccountByID)))
-	router.HandleFunc("/transfer", makeHttpHandleFunc(s.handleTransferAccount))
-
-	log.Println("JSON API server running on port: ", s.listenAddr)
-	http.ListenAndServe(s.listenAddr, router)
-}
 
 func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error {
 
@@ -147,24 +187,19 @@ func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
-	createAccountReq := new(CreateAccountRequest)
-
-	if err := json.NewDecoder(r.Body).Decode(createAccountReq); err != nil {
+	req := new(CreateAccountRequest)
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		return err
 	}
 
-	account := NewAccount(createAccountReq.FirstName, createAccountReq.LastName)
+	account, err := NewAccount(req.FirstName, req.LastName, req.Password)
 
-	if err := s.dbConnection.CreateAccount(account); err != nil {
-		return err
-	}
-
-	tokenString, err := createJWT(account)
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("JWT token: ", tokenString)
+	if err := s.dbConnection.CreateAccount(account); err != nil {
+		return err
+	}
 	return WriteJSON(w, http.StatusOK, account)
 
 }
